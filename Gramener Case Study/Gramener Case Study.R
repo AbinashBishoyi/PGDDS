@@ -375,35 +375,6 @@ grid.arrange(Plot20, Plot21, nrow = 2, ncol = 1)
 # There seems to be relationship between the DTI and the Grade, so,
 # between DTI and Grade, Grade can be considered as a valid reflection for DTI data as well.
 
-# # Grade Vs Sub_Grade Vs Median DTI  Vs Percentage Charged Off
-# PLot22 <- ggplot() + 
-#   geom_tile(data = loans %>% 
-#               group_by(grade,sub_grade_num) %>% 
-#               summarize(med_dti = median(dti,na.rm=TRUE)),aes(x=grade,y=sub_grade_num,fill=med_dti)) +
-#   geom_text(data = (loans %>% 
-#                       group_by(grade,sub_grade_num,loan_status) %>% 
-#                       summarize(cnt=length(id)) %>% 
-#                       mutate(ratio=paste("Charged Off =",round(cnt/sum(cnt),4)*100,"%")) %>% 
-#                       filter(loan_status=="Charged Off")),
-#             aes(x=grade,y=sub_grade_num,label=ratio),col="white") +
-#   geom_text(data = (loans %>% 
-#                       group_by(grade,sub_grade_num,loan_status) %>% 
-#                       summarize(cnt=length(id)) %>% 
-#                       mutate(ratio=paste("Fully Paid =",round(cnt/sum(cnt),4)*100,"%")) %>% 
-#                       filter(loan_status=="Fully Paid")),
-#             aes(x=grade,y=sub_grade_num,label=ratio),col="white",vjust=-1.0) +
-#   geom_text(data = (loans %>% 
-#                       group_by(grade,sub_grade_num) %>% 
-#                       summarize(cnt=length(id)) %>%
-#                       mutate(cnt2=paste("Total = ",cnt))),
-#             aes(x=grade,y=sub_grade_num,label=cnt2),col="white",vjust=-2.2) +
-#   labs(title="G18 - Grade Vs Sub-Grade Vs Median DTI\nWith percentage Charged off for each\nSub-Grade",
-#        x="Grade",y="Sub-Grade",fill="Median DTI",label="Percentage of Charged Off Loans")
-# 
-# PLot22
-# # G3 Grade level is a clear risk for LC #
-
-
 # Grade vs Interest Rate
 Plot22 <- ggplot(loans) + geom_boxplot(aes(x = sub_grade, y = int_rate, fill = grade)) + 
   geom_line(data=(loans %>% group_by(sub_grade) %>% summarize(avg_dti = mean(int_rate, na.rm = TRUE))), 
