@@ -474,17 +474,17 @@ summary(model_14)
 sort(vif(model_14), decreasing = TRUE)
 
 # Removing JobRole.xManufacturing.Director
-model_13 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+model_15 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
                   WorkLifeBalance + Age + NumCompaniesWorked + TotalWorkingYears + 
                   TrainingTimesLastYear + YearsSinceLastPromotion + YearsWithCurrManager + 
                   YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
                   MaritalStatus.xSingle, family = "binomial", data = train)
 
-summary(model_13)
-sort(vif(model_13), decreasing = TRUE)
+summary(model_15)
+sort(vif(model_15), decreasing = TRUE)
 
 # Model looks stable
-final.model <- model_13
+final.model <- model_15
 
 #### Model Evalution #####
 # Predict Attrition for test data
