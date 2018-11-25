@@ -1,35 +1,59 @@
-library(dplyr)
+#############################HR Analytics Case Study#################
+# Submission by : Abinash Bishoyi, Balaji Nagaraja, Karthik Vecham
+#####################################################################
+
+### Business Understanding:
+
+# Based on the past and current employee information,
+# the company has maintained a database containing employee job satisfaction survey, manager/appriasal feedback  employee personal/demographic information,
+# on their current/last role with company, education, distance from home, salary hike, number of companies they have worked with.
+
+## AIM:
+
+# The aim is to automate the process of predicting 
+# if a employee would leave the company or not and to find the factors affecting the employee attrition 
+# Whether a employee would leave the company or not will depend on data from the following three buckets:
+
+# 1. Demographic Information -> general_data.csv 
+# 2. Employee Job Satisfaction
+# 3. Current Salary
+
+################################################################
+
 library(tidyr)
 library(purrr)
-library(ggplot2)
-library(esquisse)
-library(corrplot)
-library(lubridate)
 library(MASS)
 library(car)
+library(e1071)
+library(caret)
+library(ggplot2)
+library(cowplot)
+library(caTools)
+library(reshape)
+library(reshape2)
+library(magrittr)
+library(lubridate)
+library(dplyr)
 
-
-## 
+## Load csv files
 employee_survey_data <- read.csv("employee_survey_data.csv", header = TRUE, stringsAsFactors = FALSE)
 general_data <- read.csv("general_data.csv", header = TRUE, stringsAsFactors = FALSE)
 in_time <- read.csv("in_time.csv", header = TRUE, stringsAsFactors = FALSE)
 manager_survey_data <- read.csv("manager_survey_data.csv", header = TRUE, stringsAsFactors = FALSE)
 out_time <- read.csv("out_time.csv", header = TRUE, stringsAsFactors = FALSE)
 
-# head(employee_survey_data)
-# str(employee_survey_data)
-# 
-# head(general_data)
-# str(general_data)
-# 
-# head(in_time)
-# str(in_time)
-# 
-# head(manager_survey_data)
-# str(manager_survey_data)
-# 
-# head(out_time)
-# str(out_time)
+#high_level overview of data at hand
+
+str(general_data) #4410 obs. of  24 variables  #demographic data
+str(employee_survey_data) #4410 obs. of  4 variables #employee job satisfcation
+str(manager_survey_data)  #4410 obs. of  3 variables #Appraisal Data
+str(in_time)  #4410 obs. of  262 variables # 1 year data of hours put in at work
+str(out_time) #4410 obs. of  262 variables # 1 year data of hours put in at work
+
+#high_level overview of data at hand shows equal number of observations.
+#EmployeeID as column name for column 1  in in_time and out_time is missing to be fixed when cleaning data
+#in_time and out_time columns where majority or all is NA to be considered as general holiday
+# "Relationship Satisfaction" not found in any datasets https://learn.upgrad.com/v/course/163/question/95851
 
 #### Data Preparation ####
 # Let's start with in_time and out_time
@@ -96,12 +120,8 @@ str(office_time.long)
 # office_time.long$Month <- month.abb[month(office_time.long$Date)]
 office_time.long$Month <- month(office_time.long$Date)
 
-
 # write.csv(office_time.long, "office_time.csv")
 
-
-#################
-#################
 # Summarise Monthly Hours and Leaves(NAs), WorkingDays
 office_time.summarised <- office_time.long %>% group_by(EmployeeID, Month) %>%
                             mutate(MonthlyHours = sum(Hours, na.rm = TRUE), Leaves = sum(is.na(Hours))) %>%
@@ -130,7 +150,6 @@ office_time.summarised <- office_time.summarised %>% group_by(EmployeeID) %>%
 office_time.summarised$Month <- month.abb[office_time.summarised$Month]
 head(office_time.summarised)
 
-
 # Converting office_time.summarised to wide format so that it can be merged with other dataset
 # Dropping MonthlyHours, Leaves, YearlyHours in the new dataset
 office_time.final <- spread(office_time.summarised[, c(1,2,6)], key = Month, value = MonthlyUtil)
@@ -148,10 +167,10 @@ map(employee_survey_data, ~ sum(is.na(.)))
 sum(is.na(general_data))
 map(general_data, ~ sum(is.na(.)))
 sapply(general_data, function(x) sum(is.na(x)))
-View(general_data[which(is.na(general_data$NumCompaniesWorked)), ])
+# View(general_data[which(is.na(general_data$NumCompaniesWorked)), ])
 # We can't substitute NAs for NumCompaniesWorked, as based on the current dataset we can't derived any metrics for the same
 
-View(general_data[which(is.na(general_data$TotalWorkingYears)), ])
+# View(general_data[which(is.na(general_data$TotalWorkingYears)), ])
 # From current Age and TotalWorkingYears, we can deduct at what age someone started working
 # It can help in sustituting NAs for TotalWorkingYears
 general_data %>% filter(!is.na(TotalWorkingYears)) %>% summarise(mean(Age - TotalWorkingYears))
@@ -169,5 +188,66 @@ employee_database <- full_join(employee_survey_data, general_data, by = "Employe
 employee_database <- full_join(employee_database, manager_survey_data, by = "EmployeeID")
 employee_database <- full_join(employee_database, office_time.final, by = "EmployeeID")
 
+dim(employee_database)
+str(employee_database)
+
+# Follwoing are categorical variables based on the data dict
+factor_cols <- c("Attrition", "BusinessTravel", "Department", "Education", "EducationField", "Gender", 
+                 "JobLevel", "JobRole", "MaritalStatus", "Over18", "StockOptionLevel", "EnvironmentSatisfaction",
+                 "JobSatisfaction", "WorkLifeBalance", "JobInvolvement", "PerformanceRating")
+employee_database[factor_cols] <- lapply(employee_database[factor_cols], factor)
+sapply(employee_database, class)
+
+# Let's check if there is any column which have the same data - no variance
+novariance_cols <- colnames(employee_database)[which(sapply(employee_database, function(x) length(unique(x)) == 1))]
+novariance_cols
+# [1] "EmployeeCount" "Over18"        "StandardHours"
+# We can remove these column, as they won't help in modelling
+employee_database <- employee_database %>% dplyr::select(-c(novariance_cols))
+
+# Let'e check for NAs
 sum(is.na(employee_database))
 sapply(employee_database, function(x) sum(is.na(x)))
+colMeans(is.na(employee_database))
+
+# Since the NAs population is too small, we can drop them
+employee_database <- na.omit(employee_database)
+dim(employee_database)
+
+##### Univariate and Bivariate Analysis ####
+## Outlier Treatment
+# Continuous Variables 
+con_vars <- c("EmployeeID", "MonthlyIncome", "Age", "DistanceFromHome", "PercentSalaryHike", 
+              "TotalWorkingYears", "YearsAtCompany", "YearsWithCurrManager", "YearsSinceLastPromotion", 
+              "YearlyLeaves","YearlyAvgUtil")
+
+# Outlier check with box plot
+# New copy for the modeling
+emp_db <- employee_database
+melt(data = emp_db[con_vars], id.vars = "EmployeeID") %>%  ggplot(aes(x = variable, y = value)) +
+  geom_boxplot() +  facet_wrap(~variable, scales = "free")
+
+# Variables with outliers are MonthlyIncome, TotalWorkingYears, YearsAtCompany, YearsWithCurrManager, 
+# YearsSinceLastPromotion, YearlyAvgUtil
+remove_outliers <- function(x) {
+  qnt <- quantile(x, probs = c(.25, .75), na.rm = TRUE)
+  caps <- quantile(x, probs = c(.05, .95), na.rm = TRUE)
+  H <- 1.5 * IQR(x, na.rm = TRUE)
+  y <- x
+  y[x < (qnt[1] - H)] <- caps[1]
+  y[x > (qnt[2] + H)] <- caps[2]
+  y
+}
+
+emp_db$MonthlyIncome <- remove_outliers(emp_db$MonthlyIncome)
+emp_db$TotalWorkingYears <- remove_outliers(emp_db$TotalWorkingYears)
+emp_db$YearsAtCompany <- remove_outliers(emp_db$YearsAtCompany)
+emp_db$YearsWithCurrManager <- remove_outliers(emp_db$YearsWithCurrManager)
+emp_db$YearsSinceLastPromotion <- remove_outliers(emp_db$YearsSinceLastPromotion)
+emp_db$YearlyAvgUtil <- remove_outliers(emp_db$YearlyAvgUtil)
+
+# Post Outlier Treatment
+melt(data = emp_db[con_vars], id.vars = "EmployeeID") %>%  ggplot(aes(x = variable, y = value)) +
+  geom_boxplot() +  facet_wrap(~variable, scales = "free")
+
+##### Model Preparation ####
