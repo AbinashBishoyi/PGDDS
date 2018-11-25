@@ -153,7 +153,11 @@ head(office_time.summarised)
 # Converting office_time.summarised to wide format so that it can be merged with other dataset
 # Dropping MonthlyHours, Leaves, YearlyHours in the new dataset
 office_time.final <- spread(office_time.summarised[, c(1,2,6)], key = Month, value = MonthlyUtil)
-office_time.final <- full_join(office_time.final, office_time.summarised %>% group_by(EmployeeID) %>% distinct(EmployeeID, YearlyLeaves, YearlyAvgUtil), by = "EmployeeID")
+office_time.final <- full_join(office_time.final, office_time.summarised %>% group_by(EmployeeID) %>%
+                                 distinct(EmployeeID, YearlyLeaves, YearlyAvgUtil), by = "EmployeeID")
+
+# We will use only Yerly data for the Modeling, we can drop monthly data
+office_time.final <- office_time.final %>% dplyr::select(-c(month.abb[1:12]))
 
 # Now, let's check employee_survey_data
 sum(is.na(employee_survey_data))
@@ -251,3 +255,66 @@ melt(data = emp_db[con_vars], id.vars = "EmployeeID") %>%  ggplot(aes(x = variab
   geom_boxplot() +  facet_wrap(~variable, scales = "free")
 
 ##### Model Preparation ####
+# Looks for factor variable with 2 levels
+colnames(employee_database)[which(sapply(employee_database, function(x) length(unique(x)) == 2))]
+# [1] "Attrition"         "Gender"            "PerformanceRating"
+summary(as.factor(emp_db$Attrition))
+summary(emp_db$Gender)
+summary(emp_db$PerformanceRating)
+
+# converting 2-level data to c(0, 1) and to numeric data type
+levels(emp_db$Attrition) <- c(0, 1) # No(0), Yes(1)
+emp_db$Attrition <- as.numeric(levels(emp_db$Attrition))[emp_db$Attrition]
+
+levels(emp_db$Gender) <- c(0, 1) # Female(0), Male(1)
+emp_db$Gender <- as.numeric(levels(emp_db$Gender))[emp_db$Gender]
+
+levels(emp_db$PerformanceRating) <- c(0, 1) # 3(0), 4(1)
+emp_db$PerformanceRating <- as.numeric(levels(emp_db$PerformanceRating))[emp_db$PerformanceRating]
+
+str(emp_db)
+categorial_cols <- c(2:4, 7:8, 10:11, 13:15, 19, 25)
+continuous_cols <- c(2:ncol(emp_db))[which(!c(2:ncol(emp_db)) %in% categorial_cols)]
+
+sapply(emp_db[categorial_cols], class)
+sapply(emp_db[continuous_cols], class)
+
+# Converting multi-level categorical variable to numeric dummy variable
+dummies <- as.data.frame(sapply(emp_db[, categorial_cols], 
+                  function(x) data.frame(model.matrix(~x, data = emp_db[, categorial_cols]))))
+# colnames(dummies)
+dummies <- dummies %>% dplyr::select(-c("EnvironmentSatisfaction.X.Intercept.", 
+                                        "JobSatisfaction.X.Intercept.", "WorkLifeBalance.X.Intercept.", 
+                                        "BusinessTravel.X.Intercept.", "Department.X.Intercept.", 
+                                        "Education.X.Intercept.", "EducationField.X.Intercept.", 
+                                        "JobLevel.X.Intercept.", "JobRole.X.Intercept.", 
+                                        "MaritalStatus.X.Intercept.", "StockOptionLevel.X.Intercept.", 
+                                        "JobInvolvement.X.Intercept."))
+emp_db <- cbind(emp_db %>% dplyr::select(-c("EnvironmentSatisfaction", 
+                                            "JobSatisfaction", "WorkLifeBalance", 
+                                            "BusinessTravel", "Department", "Education", 
+                                            "EducationField", "JobLevel", "JobRole", "MaritalStatus", 
+                                            "StockOptionLevel", "JobInvolvement")), dummies)
+
+# We don't need EmployeeId for the Modeling
+emp_db <- emp_db %>% dplyr::select(-EmployeeID)
+
+# Scale all numerical variables
+emp_db[, continuous_cols] <- data.frame(sapply(emp_db[, continuous_cols], function(x) scale(x)))
+
+#### Building Model ####
+# separate training and testing data
+set.seed(100)
+
+trainindices = sample(1:nrow(emp_db), 0.7 * nrow(emp_db))
+train = emp_db[trainindices, ]
+test = emp_db[-trainindices, ]
+
+# Build model 1 containing all variables
+model_1 = glm(Attrition ~ ., data = train, family = "binomial")
+summary(model_1)
+
+#Now let's use stepAIC. 
+model_2 <- stepAIC(model_1, direction = "both")
+summary(model_2)
+sort(vif(model_2), decreasing = TRUE)
