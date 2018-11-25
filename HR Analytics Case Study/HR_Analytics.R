@@ -34,6 +34,7 @@ library(reshape2)
 library(magrittr)
 library(lubridate)
 library(dplyr)
+library(ROCR)
 
 ## Load csv files
 employee_survey_data <- read.csv("employee_survey_data.csv", header = TRUE, stringsAsFactors = FALSE)
@@ -196,9 +197,8 @@ dim(employee_database)
 str(employee_database)
 
 # Follwoing are categorical variables based on the data dict
-factor_cols <- c("Attrition", "BusinessTravel", "Department", "Education", "EducationField", "Gender", 
-                 "JobLevel", "JobRole", "MaritalStatus", "Over18", "StockOptionLevel", "EnvironmentSatisfaction",
-                 "JobSatisfaction", "WorkLifeBalance", "JobInvolvement", "PerformanceRating")
+factor_cols <- c("Attrition", "BusinessTravel", "Department", "EducationField", "Gender", 
+                 "JobRole", "MaritalStatus", "Over18")
 employee_database[factor_cols] <- lapply(employee_database[factor_cols], factor)
 sapply(employee_database, class)
 
@@ -255,52 +255,41 @@ melt(data = emp_db[con_vars], id.vars = "EmployeeID") %>%  ggplot(aes(x = variab
   geom_boxplot() +  facet_wrap(~variable, scales = "free")
 
 ##### Model Preparation ####
+str(emp_db)
+categorial_cols <- c(6, 7, 8, 11, 12, 14, 15)
+continuous_cols <- c(2:ncol(emp_db))[which(!c(2:ncol(emp_db)) %in% categorial_cols)]
+
+# Scale all numerical variables
+emp_db[, continuous_cols] <- data.frame(sapply(emp_db[, continuous_cols], function(x) scale(x)))
+
 # Looks for factor variable with 2 levels
 colnames(employee_database)[which(sapply(employee_database, function(x) length(unique(x)) == 2))]
 # [1] "Attrition"         "Gender"            "PerformanceRating"
-summary(as.factor(emp_db$Attrition))
-summary(emp_db$Gender)
-summary(emp_db$PerformanceRating)
-
 # converting 2-level data to c(0, 1) and to numeric data type
 levels(emp_db$Attrition) <- c(0, 1) # No(0), Yes(1)
-emp_db$Attrition <- as.numeric(levels(emp_db$Attrition))[emp_db$Attrition]
+# emp_db$Attrition <- as.numeric(levels(emp_db$Attrition))[emp_db$Attrition]
 
 levels(emp_db$Gender) <- c(0, 1) # Female(0), Male(1)
-emp_db$Gender <- as.numeric(levels(emp_db$Gender))[emp_db$Gender]
-
-levels(emp_db$PerformanceRating) <- c(0, 1) # 3(0), 4(1)
-emp_db$PerformanceRating <- as.numeric(levels(emp_db$PerformanceRating))[emp_db$PerformanceRating]
-
-str(emp_db)
-categorial_cols <- c(2:4, 7:8, 10:11, 13:15, 19, 25)
-continuous_cols <- c(2:ncol(emp_db))[which(!c(2:ncol(emp_db)) %in% categorial_cols)]
+# emp_db$Gender <- as.numeric(levels(emp_db$Gender))[emp_db$Gender]
 
 sapply(emp_db[categorial_cols], class)
 sapply(emp_db[continuous_cols], class)
+
+# Excluding Attritaion and Gender
+categorial_cols <- c(7, 8, 11, 14, 15)
 
 # Converting multi-level categorical variable to numeric dummy variable
 dummies <- as.data.frame(sapply(emp_db[, categorial_cols], 
                   function(x) data.frame(model.matrix(~x, data = emp_db[, categorial_cols]))))
 # colnames(dummies)
-dummies <- dummies %>% dplyr::select(-c("EnvironmentSatisfaction.X.Intercept.", 
-                                        "JobSatisfaction.X.Intercept.", "WorkLifeBalance.X.Intercept.", 
-                                        "BusinessTravel.X.Intercept.", "Department.X.Intercept.", 
-                                        "Education.X.Intercept.", "EducationField.X.Intercept.", 
-                                        "JobLevel.X.Intercept.", "JobRole.X.Intercept.", 
-                                        "MaritalStatus.X.Intercept.", "StockOptionLevel.X.Intercept.", 
-                                        "JobInvolvement.X.Intercept."))
-emp_db <- cbind(emp_db %>% dplyr::select(-c("EnvironmentSatisfaction", 
-                                            "JobSatisfaction", "WorkLifeBalance", 
-                                            "BusinessTravel", "Department", "Education", 
-                                            "EducationField", "JobLevel", "JobRole", "MaritalStatus", 
-                                            "StockOptionLevel", "JobInvolvement")), dummies)
+dummies <- dummies %>% dplyr::select(-c("BusinessTravel.X.Intercept.", "Department.X.Intercept.", 
+                                        "EducationField.X.Intercept.", "JobRole.X.Intercept.", 
+                                        "MaritalStatus.X.Intercept."))
+emp_db <- cbind(emp_db %>% dplyr::select(-c("BusinessTravel", "Department", "EducationField", 
+                                            "JobRole", "MaritalStatus")), dummies)
 
 # We don't need EmployeeId for the Modeling
 emp_db <- emp_db %>% dplyr::select(-EmployeeID)
-
-# Scale all numerical variables
-emp_db[, continuous_cols] <- data.frame(sapply(emp_db[, continuous_cols], function(x) scale(x)))
 
 #### Building Model ####
 # separate training and testing data
@@ -318,3 +307,293 @@ summary(model_1)
 model_2 <- stepAIC(model_1, direction = "both")
 summary(model_2)
 sort(vif(model_2), decreasing = TRUE)
+
+# Removing Department.xResearch...Development
+model_3 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + Education + Gender + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyLeaves + YearlyAvgUtil + BusinessTravel.xTravel_Frequently + 
+                 BusinessTravel.xTravel_Rarely +  
+                 Department.xSales + EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director + JobRole.xResearch.Scientist + 
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_3)
+sort(vif(model_3), decreasing = TRUE)
+
+# Removing BusinessTravel.xTravel_Rarely
+model_4 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + Education + Gender + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyLeaves + YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 Department.xSales + EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director + JobRole.xResearch.Scientist + 
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_4)
+sort(vif(model_4), decreasing = TRUE)
+# VIF ~ 2, we need to chk for high p-value
+
+# Removing Department.xSales
+model_5 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + Education + Gender + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyLeaves + YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director + JobRole.xResearch.Scientist + 
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_5)
+sort(vif(model_5), decreasing = TRUE)
+# VIF ~ 2, we need to chk for high p-value
+
+# Removing Gender
+model_6 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + Education + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyLeaves + YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director + JobRole.xResearch.Scientist + 
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_6)
+sort(vif(model_6), decreasing = TRUE)
+
+# Removing YearlyLeaves
+model_7 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + Education + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director + JobRole.xResearch.Scientist + 
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_7)
+sort(vif(model_7), decreasing = TRUE)
+
+# Removing JobRole.xResearch.Scientist
+model_8 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + Education + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director +
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_8)
+sort(vif(model_8), decreasing = TRUE)
+
+# Removing Education
+model_9 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + JobInvolvement + 
+                 YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director +
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_9)
+sort(vif(model_9), decreasing = TRUE)
+
+# Removing JobInvolvement
+model_10 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                 WorkLifeBalance + Age + MonthlyIncome + 
+                 NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                 YearsSinceLastPromotion + YearsWithCurrManager + 
+                 YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                 EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                 JobRole.xResearch.Director +
+                 JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+               data = train)
+
+summary(model_10)
+sort(vif(model_10), decreasing = TRUE)
+
+# Removing MonthlyIncome
+model_11 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                  WorkLifeBalance + Age + 
+                  NumCompaniesWorked + TotalWorkingYears + TrainingTimesLastYear + 
+                  YearsSinceLastPromotion + YearsWithCurrManager + 
+                  YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                  EducationField.xTechnical.Degree + JobRole.xManufacturing.Director + 
+                  JobRole.xResearch.Director +
+                  JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+                data = train)
+
+summary(model_11)
+sort(vif(model_11), decreasing = TRUE)
+
+# Removing EducationField.xTechnical.Degree
+model_12 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                  WorkLifeBalance + Age + NumCompaniesWorked + TotalWorkingYears + 
+                  TrainingTimesLastYear + YearsSinceLastPromotion + YearsWithCurrManager + 
+                  YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                  JobRole.xManufacturing.Director + JobRole.xResearch.Director + 
+                  JobRole.xSales.Executive + MaritalStatus.xSingle, family = "binomial", 
+                data = train)
+
+summary(model_12)
+sort(vif(model_12), decreasing = TRUE)
+
+# Removing JobRole.xSales.Executive
+model_13 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                  WorkLifeBalance + Age + NumCompaniesWorked + TotalWorkingYears + 
+                  TrainingTimesLastYear + YearsSinceLastPromotion + YearsWithCurrManager + 
+                  YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                  JobRole.xManufacturing.Director + JobRole.xResearch.Director + 
+                  MaritalStatus.xSingle, family = "binomial", 
+                data = train)
+
+summary(model_13)
+sort(vif(model_13), decreasing = TRUE)
+
+# Removing JobRole.xResearch.Director
+model_14 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                  WorkLifeBalance + Age + NumCompaniesWorked + TotalWorkingYears + 
+                  TrainingTimesLastYear + YearsSinceLastPromotion + YearsWithCurrManager + 
+                  YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                  JobRole.xManufacturing.Director +
+                  MaritalStatus.xSingle, family = "binomial", 
+                data = train)
+
+summary(model_14)
+sort(vif(model_14), decreasing = TRUE)
+
+# Removing JobRole.xManufacturing.Director
+model_13 <- glm(formula = Attrition ~ EnvironmentSatisfaction + JobSatisfaction + 
+                  WorkLifeBalance + Age + NumCompaniesWorked + TotalWorkingYears + 
+                  TrainingTimesLastYear + YearsSinceLastPromotion + YearsWithCurrManager + 
+                  YearlyAvgUtil + BusinessTravel.xTravel_Frequently +
+                  MaritalStatus.xSingle, family = "binomial", data = train)
+
+summary(model_13)
+sort(vif(model_13), decreasing = TRUE)
+
+# Model looks stable
+final.model <- model_13
+
+#### Model Evalution #####
+# Predict Attrition for test data
+test$AttritionPredict <- predict(final.model, 
+                                     type = "response", 
+                                     newdata = test %>% dplyr::select(-Attrition))
+# Minimum value of Prediction Probability
+min(test$AttritionPredict)
+# [1] 0.000428976
+
+# Maximum value of Prediction Probability
+max(test$AttritionPredict)
+# [1] 0.8829905
+
+# Let's use the Prediction Probability cutoff of 60%
+predict_attrition <- factor(ifelse(test$AttritionPredict >= 0.60, "Yes", "No"))
+actual_attrition <- factor(ifelse(test$Attrition == 1, "Yes", "No"))
+
+conf_Matrix <- confusionMatrix(predict_attrition, actual_attrition, positive = "Yes")
+conf_Matrix
+
+# Sensitivity is very low
+# Let's find out the optimal probalility cutoff 
+
+determine_cutoff <- function(cutoff) 
+{
+  predict <- factor(ifelse(test$AttritionPredict >= cutoff, "Yes", "No"))
+  conf <- confusionMatrix(predict, actual_attrition, positive = "Yes")
+  Accuracy <- conf$overall[1]
+  Sensitivity <- conf$byClass[1]
+  Specificity <- conf$byClass[2]
+  t(as.matrix(c(Sensitivity, Specificity, Accuracy))) 
+}
+
+# Testing for  cutoff values from 0.01 to 0.90
+s = seq(0.01, 0.90, length=100)
+result = matrix(0, 100, 3)
+for(i in 1:100)
+{
+  result[i, ] = determine_cutoff(s[i])
+} 
+
+# Plot the Cutoff values
+plot(s, result[, 1], xlab = "Cutoff", ylab = "Value", cex.lab = 1.5,
+     cex.axis=1.5, ylim=c(0,1), type="l", lwd = 2, axes = FALSE, col = 2)
+axis(1, seq(0, 1, length=5), seq(0, 1, length = 5), cex.lab = 1.5)
+axis(2, seq(0, 1, length=5), seq(0, 1, length = 5), cex.lab = 1.5)
+lines(s, result[,2], col = "Green", lwd = 2)
+lines(s, result[,3], col = 4, lwd = 2)
+box()
+legend(0, 0.50, col = c(2,"Green", 4, "Red"), lwd = c(2, 2, 2, 2), c("Sensitivity","Specificity","Accuracy"))
+
+cutoff <- s[which(abs(result[, 1] - result[, 2]) < 0.01)]
+cutoff
+
+# Let's use cutoff value of 0.172 got from the plot
+predict_attrition <- factor(ifelse(test$AttritionPredict >= 0.172, "Yes", "No"))
+conf_Matrix.final <- confusionMatrix(predict_attrition, actual_attrition, positive = "Yes")
+conf_Matrix.final
+
+predict_attrition <- ifelse(predict_attrition == "Yes", 1, 0)
+actual_attrition <- ifelse(actual_attrition == "Yes", 1, 0)
+
+## KS Statistics
+pred_test<- prediction(predict_attrition, actual_attrition)
+performance_measures_test<- performance(pred_test, "tpr", "fpr")
+
+ks_table_test <- attr(performance_measures_test, "y.values")[[1]] - (attr(performance_measures_test, "x.values")[[1]])
+
+max(ks_table_test)
+
+
+# Lift & Gain Chart 
+lift <- function(labels, predicted_prob, groups = 10) {
+  if(is.factor(labels)) labels  <- as.integer(as.character(labels ))
+  if(is.factor(predicted_prob)) predicted_prob <- as.integer(as.character(predicted_prob))
+  helper = data.frame(cbind(labels, predicted_prob))
+  helper[, "bucket"] = ntile(-helper[, "predicted_prob"], groups)
+  gaintable = helper %>% group_by(bucket)  %>%
+                summarise_at(vars(labels), funs(total = n(), totalresp=sum(., na.rm = TRUE))) %>%
+                mutate(Cumresp = cumsum(totalresp),
+                       Gain=Cumresp/sum(totalresp)*100, 
+                       Cumlift=Gain/(bucket*(100/groups))) 
+  return(gaintable)
+}
+
+Attrition_decile = lift(actual_attrition, test$AttritionPredict, groups = 10)
+Attrition_decile
+
+Gain <- c(0, Attrition_decile$Gain)
+Deciles <- c(0, Attrition_decile$bucket)
+
+# Gain Chart
+plot(y = Gain, x = Deciles, type = "l", lwd = 2, xlab = "Bucket", ylab = "Gain", main = "Gain Chart")
+Random_Gain <- seq(from = 0, to = 100, by = 10)
+lines(y = Random_Gain, x = Deciles, type = "l", lwd = 2, col = "Red")
+Perfect_Gain <- vector(mode = "numeric", length = 11)
+for (i in 2:11) {
+  Perfect_Gain[i] <- 100 * min(1, 129 * (i - 1)/209)
+}
+lines(y = Perfect_Gain, x = Deciles, type = "l", lwd = 2, col = "Green")
+legend("bottomright", col= c("Green", "Black", "Red"), lwd = c(2, 2, 2, 2), 
+       c("Perfect Model", "Actual Model", "Random Model"), cex = 0.7)
+
+# Lift chart
+Lift <- Gain/Random_Gain
+Random_Lift <- Random_Gain/Random_Gain
+
+plot(y = Lift, x = Deciles, type = "l", ylim = c(0, 3.5), lwd = 2, 
+     xlab = "Bucket", ylab = "Lift", main = "Lift Chart", ylim <- c())
+lines(y = Random_Lift, x = Deciles, type = "l", lwd = 2, col = "Red")
+legend("topright", col = c("Black", "Red"), lwd = c(2, 2, 2), c("Actual Model", "Random Model"), cex = 0.7)
